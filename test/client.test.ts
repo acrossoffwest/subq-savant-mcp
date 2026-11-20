@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, type Mock } from "vitest";
-import { ApiError, SubqClient } from "../src/client.js";
+import { ApiError, IncompleteStreamError, SubqClient } from "../src/client.js";
 
 type FetchMock = Mock<typeof fetch>;
 
@@ -140,14 +140,14 @@ describe("SubqClient.chat SSE parsing", () => {
     await expect(client.chat(chatOpts)).rejects.toThrow(/before \[DONE\]/);
   });
 
-  it("rejects with ApiError for a mid-stream error event", async () => {
+  it("rejects with IncompleteStreamError for a mid-stream error event", async () => {
     const fetchImpl = vi.fn<typeof fetch>().mockImplementation(async () =>
       streamResponse([event(contentEvent("abc")), event({ error: { message: "x", code: "y" } }), DONE]),
     );
     const client = makeClient(fetchImpl);
 
-    await expect(client.chat(chatOpts)).rejects.toBeInstanceOf(ApiError);
-    await expect(client.chat(chatOpts)).rejects.toMatchObject({ message: "x", code: "y" });
+    await expect(client.chat(chatOpts)).rejects.toBeInstanceOf(IncompleteStreamError);
+    await expect(client.chat(chatOpts)).rejects.toThrow(/y: x/);
   });
 });
 

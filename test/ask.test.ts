@@ -111,7 +111,8 @@ describe("ask results", () => {
     expect(readFileSync(target, "utf8")).toBe("The answer is 42.");
     expect(statSync(target).mode & 0o777).toBe(0o600);
 
-    await expect(ask(input, { client })).rejects.toMatchObject({ code: "EEXIST" });
+    await expect(ask(input, { client })).rejects.toThrow(/already exists/);
+    expect(chat).toHaveBeenCalledTimes(1);
 
     chat.mockResolvedValueOnce(answer({ content: "second answer" }));
     await ask({ ...input, overwrite: true }, { client });
@@ -131,5 +132,20 @@ describe("previewPack", () => {
 
   it("throws when no paths are given", () => {
     expect(() => previewPack({ root: dir })).toThrow("paths is required");
+  });
+});
+
+describe("ask output_file confinement", () => {
+  it("rejects a missing directory or a target outside root before calling the API", async () => {
+    const chat = vi.fn();
+    const client = { chat } as unknown as SubqClient;
+    const root = mkdtempSync(join(tmpdir(), "savant-ask-out-"));
+    try {
+      await expect(ask({ prompt: "q", root, outputFile: "nope/a.md" }, { client })).rejects.toThrow(/does not exist/);
+      await expect(ask({ prompt: "q", root, outputFile: join(tmpdir(), "escape.md") }, { client })).rejects.toThrow(/outside/);
+      expect(chat).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

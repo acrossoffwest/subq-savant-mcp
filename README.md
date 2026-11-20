@@ -15,10 +15,10 @@ An agent cannot push 1M tokens through tool arguments. So the server assembles t
 Packing rules:
 
 - Respects `.gitignore` (nested too). Skips `.git`, `node_modules`, `dist`, `build`, `target`, `vendor`, lockfiles, binaries, minified files, files over 1 MB, symlinks.
-- Skips secret-looking files: `.env*` (except `.env.example`), `*.pem`, `*.key`, `id_rsa*`, `.npmrc`, `*.tfstate`, and any file containing a private key, AWS key, GitHub token or similar.
+- Skips secret-looking files: `.env*`/`*.env` (except `.env.example`), `*.pem`, `*.key`, `id_rsa*`, `.npmrc`, `kubeconfig`, `*.tfstate`, and any file containing a private key, AWS/GitHub/Slack/Stripe/Google key or JWT. This is heuristic, not a guarantee.
 - Each file is sent as `<file path="rel/path">` with `N| ` line prefixes, so answers cite `path:line`.
 - Files are sorted by path, so repeated runs share a prompt prefix and benefit from cached-input pricing.
-- Paths must stay inside `root` (default: the server's working directory). Set `SUBQ_ALLOWED_ROOTS` (colon-separated) to restrict where `root` may point. `/` and the home directory are refused.
+- Paths (symlinks resolved) must stay inside `root`, and so must `output_file`. `root` defaults to the server's working directory, but the caller can pass any `root`, so this is not a sandbox on its own: set `SUBQ_ALLOWED_ROOTS` (colon-separated) in the server environment to restrict where packing and output may happen. `/` and the home directory are refused; `.ssh`, `.aws`, `.gnupg`, `.kube`, `.docker` are never walked. Inline `context` is sent as given and is not scanned.
 - The request is refused locally if the estimated input plus `max_tokens` exceeds 95% of the 4,194,304-token window. The estimate is bytes/3.2 and was within about 2% on a small sample; `savant_pack_preview` shows it before you pay.
 
 Answers over 60k characters (or any answer with `output_file`) are written to a file (mode 600) and only a preview plus the path is returned. A partial answer from a broken stream is saved the same way.
@@ -90,7 +90,7 @@ CLI equivalent: `codex mcp add savant -- node /absolute/path/to/subq-savant-mcp/
 
 ```bash
 node dist/cli.js status
-node dist/cli.js preview ~/work/app/src --exclude-tests
+node dist/cli.js preview src --root ~/work/app --exclude-tests
 node dist/cli.js ask "Which frontend API calls have no matching backend route?" web/src api/src \
   --root ~/work/app --exclude-tests --effort high --output answer.md
 ```

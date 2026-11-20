@@ -68,6 +68,8 @@ async function main(): Promise<void> {
   } else if (cmd === "ask") {
     const prompt = values["prompt-file"] ? readFileSync(values["prompt-file"], "utf8") : rest.shift();
     if (!prompt) throw new Error("prompt is required");
+    if (values.effort && !["low", "high", "max"].includes(values.effort))
+      throw new Error("--effort must be low, high or max");
     const maxTokens = values["max-tokens"] ? Number(values["max-tokens"]) : undefined;
     if (maxTokens !== undefined && !(Number.isInteger(maxTokens) && maxTokens > 0))
       throw new Error("--max-tokens must be a positive integer");

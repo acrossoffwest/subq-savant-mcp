@@ -148,12 +148,22 @@ export class SubqClient {
         done = true;
         return;
       }
-      const chunk = JSON.parse(data) as {
+      let chunk: {
         error?: { message?: string; code?: string };
         usage?: Usage;
         choices?: { delta?: { content?: string | null; reasoning?: string | null }; finish_reason?: string | null }[];
       };
-      if (chunk.error) throw new ApiError(chunk.error.message ?? "stream error", 200, chunk.error.code);
+      try {
+        chunk = JSON.parse(data);
+      } catch {
+        throw new IncompleteStreamError("SubQ stream contained a malformed event", content);
+      }
+      if (chunk.error) {
+        throw new IncompleteStreamError(
+          `SubQ stream error ${chunk.error.code ?? ""}: ${chunk.error.message ?? ""}`,
+          content,
+        );
+      }
       if (chunk.usage) usage = chunk.usage;
       const choice = chunk.choices?.[0];
       if (!choice) return;

@@ -1,17 +1,19 @@
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, realpathSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { IncompleteStreamError, type Effort, type SubqClient } from "./client.js";
 import { CONTEXT_WINDOW, DEFAULT_MAX_TOKENS } from "./config.js";
-import { pack, topDirs, type PackOptions, type PackResult } from "./pack.js";
+import { assertAllowed, pack, realRoot, topDirs, type PackOptions, type PackResult } from "./pack.js";
 import { checkWindow, estimateCost, estimateInputCost, estimateTokens } from "./tokens.js";
 
 export const INLINE_LIMIT_CHARS = 60_000;
 
-const DEFAULT_SYSTEM =
-  'You are a senior analyst working over a large body of source material. Files are given as <file path="..."> blocks; ' +
-  "lines are prefixed with `N| ` line numbers. Cite evidence as path:line. Be precise, say when the material does not contain " +
-  "the answer, and never invent files or symbols.";
+const systemPrompt = (lineNumbers: boolean): string =>
+  'You are a senior analyst working over a large body of source material. Files are given as <file path="..."> blocks' +
+  (lineNumbers
+    ? "; lines are prefixed with `N| ` line numbers. Cite evidence as path:line. "
+    : ". Cite evidence as path and symbol. ") +
+  "Be precise, say when the material does not contain the answer, and never invent files or symbols.";
 
 export interface SourceInput extends Omit<PackOptions, "paths"> {
   paths?: string[];
@@ -65,22 +67,41 @@ export function previewPack(input: SourceInput & { maxList?: number }): string {
   return lines.join("\n");
 }
 
-function saveAnswer(answer: string, outputFile: string | undefined, root: string, overwrite: boolean): string {
-  if (outputFile) {
-    const target = resolve(root, outputFile);
-    writeFileSync(target, answer, { flag: overwrite ? "w" : "wx", mode: 0o600 });
-    return target;
-  }
-  const target = join(mkdtempSync(join(tmpdir(), "subq-savant-")), "answer.md");
-  writeFileSync(target, answer, { mode: 0o600 });
+function checkOutputTarget(outputFile: string, root: string, overwrite: boolean): string {
+  const target = resolve(root, outputFile);
+  const parent = dirname(target);
+  if (!existsSync(parent) || !statSync(parent).isDirectory())
+    throw new Error(`output_file directory does not exist: ${parent}`);
+  assertAllowed(join(realpathSync(parent), target.slice(parent.length + 1)), root);
+  if (!overwrite && existsSync(target))
+    throw new Error(`output_file already exists: ${target} (pass overwrite to replace it)`);
   return target;
 }
 
+function saveAnswer(answer: string, target: string | undefined, overwrite: boolean): string {
+  if (target) {
+    try {
+      writeFileSync(target, answer, { flag: overwrite ? "w" : "wx", mode: 0o600 });
+      chmodSync(target, 0o600);
+      return target;
+    } catch (err) {
+      const fallback = saveAnswer(answer, undefined, false);
+      throw new Error(
+        `Could not write ${target} (${err instanceof Error ? err.message : err}). Answer saved to: ${fallback}`,
+      );
+    }
+  }
+  const path = join(mkdtempSync(join(tmpdir(), "subq-savant-")), "answer.md");
+  writeFileSync(path, answer, { mode: 0o600 });
+  return path;
+}
+
 export async function ask(input: AskInput, deps: AskDeps): Promise<{ text: string; isError: boolean }> {
-  const root = resolve(input.root ?? process.cwd());
+  const root = realRoot(input.root);
+  const outTarget = input.outputFile ? checkOutputTarget(input.outputFile, root, input.overwrite ?? false) : undefined;
   const packed = packSources({ ...input, root });
   const maxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
-  const system = input.system ?? DEFAULT_SYSTEM;
+  const system = input.system ?? systemPrompt(input.lineNumbers !== false);
   const user = [
     packed ? `<context>\n${packed.text}</context>` : "",
     input.context ? `<extra_context>\n${input.context}\n</extra_context>` : "",
@@ -103,7 +124,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<{ text: strin
     )
     .catch((err) => {
       if (err instanceof IncompleteStreamError && err.partial) {
-        const path = saveAnswer(err.partial, undefined, root, false);
+        const path = saveAnswer(err.partial, undefined, false);
         throw new Error(`${err.message}. Partial answer (${n(err.partial.length)} chars) saved to: ${path}`);
       }
       throw err;
@@ -129,7 +150,7 @@ export async function ask(input: AskInput, deps: AskDeps): Promise<{ text: strin
   const tooBig = full.length > INLINE_LIMIT_CHARS;
   if (!input.outputFile && !tooBig) return { text: `${full}\n\n---\n${footer}`, isError: false };
 
-  const path = saveAnswer(full, input.outputFile, root, input.overwrite ?? false);
+  const path = saveAnswer(full, outTarget, input.overwrite ?? false);
   const previewLen = tooBig ? 4000 : 2000;
   const preview = full.length > previewLen ? `${full.slice(0, previewLen)}\n\n[... preview only ...]` : full;
   return {

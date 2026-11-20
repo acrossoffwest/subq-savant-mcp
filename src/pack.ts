@@ -1,4 +1,4 @@
-import { existsSync, lstatSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, delimiter, dirname, extname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import ignore, { type Ignore } from "ignore";
@@ -52,6 +52,11 @@ const SKIP_DIRS = new Set([
   ".idea",
   ".gradle",
   ".mvn",
+  ".ssh",
+  ".aws",
+  ".gnupg",
+  ".kube",
+  ".docker",
 ]);
 
 const LOCKFILES = new Set([
@@ -120,9 +125,9 @@ const BINARY_EXT = new Set([
 ]);
 
 const SECRET_NAME =
-  /^(\.env(\..+)?|\.npmrc|\.netrc|\.pgpass|\.git-credentials|id_(rsa|dsa|ecdsa|ed25519)(\..+)?|credentials(\.json)?|service-account.*\.json|.+\.(pem|key|p12|pfx|jks|keystore|tfstate|tfstate\.backup))$/i;
+  /^(\.env(rc|\..+)?|.+\.env|\.pypirc|\.dockercfg|kubeconfig|\.npmrc|\.netrc|\.pgpass|\.git-credentials|id_(rsa|dsa|ecdsa|ed25519)(\..+)?|credentials(\.json)?|service-account.*\.json|.+\.(pem|key|p12|pfx|jks|keystore|tfstate|tfstate\.backup))$/i;
 const SECRET_CONTENT =
-  /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{30,}|\bsk-[A-Za-z0-9_-]{32,}|\bxox[bpas]-[A-Za-z0-9-]{20,}/;
+  /-----BEGIN [A-Z ]*PRIVATE KEY-----|\bAKIA[0-9A-Z]{16}\b|\bgh[pousr]_[A-Za-z0-9]{30,}|\bgithub_pat_[A-Za-z0-9_]{30,}|\bsk-[A-Za-z0-9_-]{32,}|\bxox[bpase]-[A-Za-z0-9-]{20,}|\bxapp-[A-Za-z0-9-]{20,}|\b[sr]k_live_[A-Za-z0-9]{20,}|\bAIza[0-9A-Za-z_-]{35}\b|\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/;
 const ENV_TEMPLATE = /^\.env\.(example|sample|template|dist)$/i;
 
 const TEST_DIRS = new Set(["test", "tests", "__tests__", "spec", "specs", "e2e", "__mocks__", "testing"]);
@@ -178,7 +183,16 @@ function inside(base: string, abs: string): boolean {
   return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
-function assertAllowed(abs: string, root: string): void {
+export function realRoot(root?: string): string {
+  const abs = resolve(root ?? process.cwd());
+  try {
+    return realpathSync(abs);
+  } catch {
+    return abs;
+  }
+}
+
+export function assertAllowed(abs: string, root: string): void {
   const extra = (process.env.SUBQ_ALLOWED_ROOTS ?? "")
     .split(delimiter)
     .filter(Boolean)
@@ -192,7 +206,7 @@ function assertAllowed(abs: string, root: string): void {
 }
 
 export function pack(opts: PackOptions): PackResult {
-  const root = resolve(opts.root ?? process.cwd());
+  const root = realRoot(opts.root);
   if (root === resolve("/") || root === homedir())
     throw new Error(`Refusing to use ${root} as root: pass a project directory`);
   const maxTotal = opts.maxBytes ?? 24_000_000;
@@ -260,7 +274,12 @@ export function pack(opts: PackOptions): PackResult {
   };
 
   for (const p of opts.paths) {
-    const abs = resolve(root, p);
+    let abs = resolve(root, p);
+    try {
+      abs = realpathSync(abs);
+    } catch {
+      throw new Error(`Path not found: ${p}`);
+    }
     if (abs === resolve("/") || abs === homedir()) throw new Error(`Refusing to pack ${abs}: pass a project directory`);
     assertAllowed(abs, root);
     let st;
@@ -285,7 +304,7 @@ export function pack(opts: PackOptions): PackResult {
   for (const [abs, lbl] of sorted) {
     let content: string;
     try {
-      if (lstatSync(abs).size > maxBytes) {
+      if (statSync(abs).size > maxBytes) {
         skip("too_large");
         continue;
       }

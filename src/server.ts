@@ -61,7 +61,7 @@ server.registerTool(
         ),
       overwrite: z.boolean().optional().describe("Allow output_file to overwrite an existing file."),
     },
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
   },
   async (a, extra) => {
     const e = extra as unknown as Extra;

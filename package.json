@@ -1,0 +1,38 @@
+{
+  "name": "subq-savant-mcp",
+  "version": "0.1.0",
+  "description": "MCP server and CLI that packs local files into one huge prompt for SubQ Savant (4M-token context) and returns only the answer",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "subq-savant-mcp": "dist/server.js",
+    "subq-savant": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    ".env.example",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "tsc",
+    "test": "vitest run",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "ignore": "^7.0.16",
+    "picomatch": "^4.0.7",
+    "undici": "^7.30.2",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "@types/picomatch": "^4.0.3",
+    "typescript": "^5.9.3",
+    "vitest": "^3.2.7"
+  }
+}
